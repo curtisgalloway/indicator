@@ -99,19 +99,23 @@ def autodetect(baud):
 
 def send(dev, baud, line):
     """Send one command, print the reply, and return an exit status for it."""
-    with serial.Serial(dev, baud, timeout=0.5) as s:
+    with serial.Serial(dev, baud, timeout=2) as s:
         time.sleep(0.2)
+        s.reset_input_buffer()
         s.write((line + "\n").encode("utf-8"))
-        time.sleep(0.15)
-        reply = s.read(s.in_waiting or 1).decode("utf-8", "replace")
-    sys.stdout.write(reply)
-    if not reply.strip():
-        print("error: no reply from %s; the command may or may not have taken "
-              "effect" % dev, file=sys.stderr)
+        # Classify on the first complete line; a reply can span several
+        # lines (cal), so collect whatever follows it shortly after.
+        first = s.readline().decode("utf-8", "replace")
+        s.timeout = 0.2
+        rest = s.read(4096).decode("utf-8", "replace")
+    sys.stdout.write(first + rest)
+    if not first.endswith("\n"):
+        print("error: no complete reply from %s; the command may or may not "
+              "have taken effect" % dev, file=sys.stderr)
         return EXIT_RETRY_UNKNOWN
-    if reply.startswith("err"):
+    if first.startswith("err"):
         return EXIT_USAGE
-    if reply.strip() == "ok alerts none":
+    if first.strip() == "ok alerts none":
         return EXIT_EMPTY
     return EXIT_OK
 

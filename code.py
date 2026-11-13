@@ -356,7 +356,14 @@ class Indicator:
 
     def handle(self, line):
         if self.mode == "cal":
-            return self.cal_input(line)
+            # Alert verbs still work mid-calibration: an alert must never be
+            # swallowed as a glyph label. `alert` ends calibration first.
+            verb = line.strip().split(None, 1)[0].lower() if line.strip() else ""
+            if verb == "alert":
+                self.mode = "normal"
+                self.blank()
+            elif verb not in ("ack", "alerts"):
+                return self.cal_input(line)
         s = line.strip()
         if not s:
             return None
@@ -429,8 +436,15 @@ def main():
                     ind.emit(resp)
                 ind.set_status(ST_ERR if (resp or "").startswith("err") else ST_READY)
         if ind.oled is not None and (serial is None or not serial.in_waiting):
-            # Refresh only once the burst of commands is drained.
-            ind.oled.refresh()
+            # Refresh only once the burst of commands is drained. An I2C
+            # failure (say, the panel unplugged) disables the OLED instead of
+            # crashing code.py, which would also stop the alert light.
+            try:
+                ind.oled.refresh()
+            except Exception as e:  # noqa: BLE001
+                ind.oled = None
+                ind.oled_error = "refresh failed: " + str(e)
+                ind.emit("err oled: " + ind.oled_error)
         ind.tick()
         time.sleep(0.005)
 
