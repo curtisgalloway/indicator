@@ -74,6 +74,10 @@ ALERT_COLORS = {
 # `oled frame <base64>`: a 128x64 frame is 1024 bytes, 1368 in base64.
 MAX_LINE = 2048
 
+# Consecutive failed OLED refreshes tolerated before the OLED is disabled.
+# The buffer stays dirty after a failure, so each loop pass retries it.
+OLED_MAX_FAILURES = 5
+
 # Commands that draw on the framebuffer; refused while an alert owns the chain.
 FRAME_COMMANDS = ("show", "blank", "clear", "off", "px", "bright", "cal")
 
@@ -358,8 +362,13 @@ class Indicator:
         if self.mode == "cal":
             # Alert verbs still work mid-calibration: an alert must never be
             # swallowed as a glyph label. `alert` ends calibration first.
-            verb = line.strip().split(None, 1)[0].lower() if line.strip() else ""
+            words = line.strip().split(None, 1)
+            verb = words[0].lower() if words else ""
             if verb == "alert":
+                level = words[1].strip().lower() if len(words) > 1 else ""
+                if level not in ALERT_LEVELS:
+                    # Stay in calibration; a bad level changes nothing.
+                    return "err alert level must be one of: " + ", ".join(ALERT_LEVELS)
                 self.mode = "normal"
                 self.blank()
             elif verb not in ("ack", "alerts"):
@@ -413,9 +422,12 @@ def main():
             "usb_cdc.enable(console=True, data=True) and POWER-CYCLE the board "
             "(soft reset is not enough)."
         )
-    ind.emit("indicator ready. type 'help'.")
+    # Unsolicited messages start with "note " so a host never mistakes them
+    # for the reply to its command.
+    ind.emit("note indicator ready. type 'help'.")
     if ind.oled_error:
-        ind.emit("err oled: " + ind.oled_error)
+        ind.emit("note oled disabled: " + ind.oled_error)
+    oled_failures = 0
 
     buf = b""
     serial = ind.serial
@@ -441,10 +453,16 @@ def main():
             # crashing code.py, which would also stop the alert light.
             try:
                 ind.oled.refresh()
+                oled_failures = 0
             except Exception as e:  # noqa: BLE001
-                ind.oled = None
-                ind.oled_error = "refresh failed: " + str(e)
-                ind.emit("err oled: " + ind.oled_error)
+                oled_failures += 1
+                if oled_failures >= OLED_MAX_FAILURES:
+                    ind.oled = None
+                    ind.oled_error = "refresh failed %d times: %s" % (
+                        oled_failures,
+                        e,
+                    )
+                    ind.emit("note oled disabled: " + ind.oled_error)
         ind.tick()
         time.sleep(0.005)
 

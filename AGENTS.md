@@ -99,6 +99,8 @@ root and `circup install adafruit_ssd1306` (pulls in `adafruit_framebuf`).
 | `help` | List commands. |
 
 Replies are prefixed `ok`, `err `, or `cal` so a host can parse outcomes.
+Messages the board sends on its own (the boot banner, an OLED being disabled)
+start with `note `; the host CLI skips them when reading a reply.
 Lines longer than 2048 bytes are discarded with `err line too long` (the
 limit is sized for `oled frame`).
 
