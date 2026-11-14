@@ -97,6 +97,18 @@ def autodetect(baud):
     return None
 
 
+def read_reply(s):
+    """Return the next reply line, skipping the board's unsolicited "note" lines.
+
+    Returns "" on timeout.
+    """
+    while True:
+        line = s.readline().decode("utf-8", "replace")
+        if not line.startswith("note "):
+            return line
+        sys.stderr.write(line)
+
+
 def send(dev, baud, line):
     """Send one command, print the reply, and return an exit status for it."""
     with serial.Serial(dev, baud, timeout=2) as s:
@@ -105,7 +117,7 @@ def send(dev, baud, line):
         s.write((line + "\n").encode("utf-8"))
         # Classify on the first complete line; a reply can span several
         # lines (cal), so collect whatever follows it shortly after.
-        first = s.readline().decode("utf-8", "replace")
+        first = read_reply(s)
         s.timeout = 0.2
         rest = s.read(4096).decode("utf-8", "replace")
     sys.stdout.write(first + rest)
@@ -135,7 +147,7 @@ def send_many(dev, lines):
         s.reset_input_buffer()
         for line in lines:
             s.write((line + "\n").encode("utf-8"))
-            reply = s.readline().decode("utf-8", "replace")
+            reply = read_reply(s)
             if not reply:
                 print("error: no reply to %r from %s" % (line[:40], dev),
                       file=sys.stderr)
